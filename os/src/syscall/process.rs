@@ -1,8 +1,9 @@
 //! Process management syscalls
-use crate::mm::{frame_alloc, PTEFlags, PageTable, VirtPageNum};
+use crate::mm::{frame_alloc, translated_byte_buffer, PTEFlags, PageTable, VirtPageNum};
 use crate::task::{
     change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
 };
+use crate::timer::get_time_us;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -30,7 +31,38 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+
+    // 获取当前用户页表 token
+    let token = current_user_token();
+
+    // 读取当前时间（微秒）
+    let us = get_time_us();
+    let tv = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+
+    // 把 TimeVal 当成字节切片（内核虚拟地址）
+    let src = unsafe {
+        core::slice::from_raw_parts(
+            (&tv as *const TimeVal) as *const u8,
+            core::mem::size_of::<TimeVal>(),
+        )
+    };
+
+    // 将用户虚拟地址翻译成可写的内核字节缓冲（可能跨页）
+    let mut dsts: alloc::vec::Vec<&mut [u8]> =
+        translated_byte_buffer(token, _ts as *const u8, core::mem::size_of::<TimeVal>());
+
+    // 分段拷贝（安全处理跨页）
+    let mut offset = 0usize;
+    for dst in dsts.iter_mut() {
+        let len = dst.len();
+        dst.copy_from_slice(&src[offset..offset + len]);
+        offset += len;
+    }
+
+    0
 }
 
 /// TODO: Finish sys_trace to pass testcases
