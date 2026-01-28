@@ -1,7 +1,9 @@
 //! Process management syscalls
-use crate::mm::{frame_alloc, translated_byte_buffer, PTEFlags, PageTable, VirtPageNum};
+use crate::config::PAGE_SIZE;
+use crate::mm::{translated_byte_buffer, MapPermission, VirtAddr, VirtPageNum};
 use crate::task::{
-    change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+    change_program_brk, current_check_page_mapped, current_map_pages, current_user_token,
+    exit_current_and_run_next, suspend_current_and_run_next,
 };
 use crate::timer::get_time_us;
 
@@ -75,48 +77,42 @@ pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
     trace!("kernel: sys_mmap");
-    // check if prot is valid
+    // 检查prot合法性
     if _prot & !0x7 != 0 || _prot & 0x7 == 0 {
         trace!("kernel: sys_mmap failed due to invalid prot!");
         return -1;
     }
-    // check if start addr is page-aligned
+    // 检查地址是否对其
     if _start & 0xfff != 0 {
         trace!("kernel: sys_mmap failed due to invalid start addr!");
         return -1;
     }
-    let mut page_table = PageTable::from_token(current_user_token());
-    let page_num = (_len + 4095) / 4096;
-    let mut flags = PTEFlags::empty();
-    if _prot & 1 != 0 {
-        flags |= PTEFlags::R;
-    }
-    if _prot & 2 != 0 {
-        flags |= PTEFlags::W;
-    }
-    if _prot & 4 != 0 {
-        flags |= PTEFlags::X;
-    }
-    // TODO: need add rollback if any mapping fails in the loop
+    // 检查是否虚拟地址是否已经映射
+    let page_num = (_len + PAGE_SIZE - 1) / PAGE_SIZE;
     for i in 0..page_num {
-        let current_page_num = VirtPageNum::from(_start + (i << 12));
-        // check if the addr is already mapped
-        if let Some(pte) = page_table.translate(current_page_num) {
-            if pte.is_valid() {
-                trace!("kernel: sys_mmap failed due to addr already mapped!");
-                return -1;
-            }
-        }
-        // check if frame allocation fails
-        let frame = frame_alloc();
-        if frame.is_none() {
-            trace!("kernel: sys_mmap failed due to frame alloc failure!");
+        let addr = _start + i * PAGE_SIZE;
+        let vpn = VirtPageNum::from(VirtAddr::from(addr));
+        if current_check_page_mapped(vpn) {
+            trace!(
+                "kernel: sys_mmap failed! VPN {:x} is already mapped!",
+                vpn.0
+            );
             return -1;
         }
-        let ppn = frame.unwrap().ppn;
-        page_table.map(current_page_num, ppn, flags);
     }
-    1
+    let mut flags = MapPermission::U;
+    if _prot & 0x1 != 0 {
+        flags |= MapPermission::R;
+    }
+    if _prot & 0x2 != 0 {
+        flags |= MapPermission::W;
+    }
+    if _prot & 0x4 != 0 {
+        flags |= MapPermission::X;
+    }
+    // 进行映射
+    current_map_pages(_start, page_num, flags);
+    0
 }
 
 // YOUR JOB: Implement munmap.

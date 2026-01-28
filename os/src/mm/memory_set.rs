@@ -262,6 +262,33 @@ impl MemorySet {
             false
         }
     }
+
+    /// 检查某个虚拟页是否已经映射
+    pub fn check_page_mapped(&self, vpn: VirtPageNum) -> bool {
+        if let Some(pte) = self.page_table.translate(vpn) {
+            pte.is_valid()
+        } else {
+            false
+        }
+    }
+
+    /// 在地址空间中映射一段虚拟页
+    pub fn map_area(&mut self, vaddr: usize, page_num: usize, perm: MapPermission) {
+        let map_area = MapArea::new(
+            vaddr.into(),
+            (vaddr + page_num * PAGE_SIZE).into(),
+            MapType::Framed,
+            perm,
+        );
+        self.areas.push(map_area);
+        let map_area = self.areas.last_mut().unwrap();
+        let mut page_table = &mut self.page_table;
+        let vppn_start = VirtPageNum::from(VirtAddr::from(vaddr));
+        for i in 0..page_num {
+            let vpn = VirtPageNum(vppn_start.0 + i);
+            map_area.map_one(&mut page_table, vpn);
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -301,6 +328,12 @@ impl MapArea {
         }
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map(vpn, ppn, pte_flags);
+        println!(
+            "mapped vpn {:x} to ppn {:x}, flags {:b}",
+            vpn.0,
+            ppn.0,
+            pte_flags.bits()
+        );
     }
     #[allow(unused)]
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {

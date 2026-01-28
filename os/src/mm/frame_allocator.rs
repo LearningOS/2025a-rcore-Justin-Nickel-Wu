@@ -118,6 +118,13 @@ pub fn frame_dealloc(ppn: PhysPageNum) {
 }
 
 #[allow(unused)]
+/// 返回当前可用物理页数
+pub fn frame_avaliable_count() -> usize {
+    let fa = FRAME_ALLOCATOR.exclusive_access();
+    fa.end - fa.current + fa.recycled.len()
+}
+
+#[allow(unused)]
 /// a simple test for frame allocator
 pub fn frame_allocator_test() {
     let mut v: Vec<FrameTracker> = Vec::new();
