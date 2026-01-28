@@ -2,8 +2,8 @@
 use crate::config::PAGE_SIZE;
 use crate::mm::{translated_byte_buffer, MapPermission, VirtAddr, VirtPageNum};
 use crate::task::{
-    change_program_brk, current_check_page_mapped, current_map_pages, current_user_token,
-    exit_current_and_run_next, suspend_current_and_run_next,
+    change_program_brk, current_check_page_mapped, current_map_pages, current_unmap_pages,
+    current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
 };
 use crate::timer::get_time_us;
 
@@ -117,8 +117,25 @@ pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_munmap");
+    // 检查地址是否对其
+    if _start & 0xfff != 0 {
+        trace!("kernel: sys_munmap failed due to invalid start addr!");
+        return -1;
+    }
+    // 检查是否虚拟地址已经映射
+    let page_num = (_len + PAGE_SIZE - 1) / PAGE_SIZE;
+    for i in 0..page_num {
+        let addr = _start + i * PAGE_SIZE;
+        let vpn = VirtPageNum::from(VirtAddr::from(addr));
+        if !current_check_page_mapped(vpn) {
+            trace!("kernel: sys_munmap failed! VPN {:x} is not mapped!", vpn.0);
+            return -1;
+        }
+    }
+    // 进行解除映射
+    current_unmap_pages(_start, page_num);
+    0
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

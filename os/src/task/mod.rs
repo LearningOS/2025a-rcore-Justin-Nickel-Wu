@@ -219,3 +219,10 @@ pub fn current_map_pages(vaddr: usize, page_num: usize, perm: MapPermission) {
         .memory_set
         .map_area(vaddr, page_num, perm);
 }
+
+/// 在当前用户程序地址空间中解除映射一段虚拟页
+pub fn current_unmap_pages(vaddr: usize, page_num: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].memory_set.unmap_area(vaddr, page_num);
+}

@@ -289,7 +289,24 @@ impl MemorySet {
             map_area.map_one(&mut page_table, vpn);
         }
     }
+
+    /// 在地址空间中解除映射一段虚拟页
+    /// TODO: 这里可能会导致数据段分裂，暂不考虑
+    pub fn unmap_area(&mut self, vaddr: usize, page_num: usize) {
+        let vppn_start = VirtPageNum::from(VirtAddr::from(vaddr));
+        let mut page_table = &mut self.page_table;
+        for i in 0..page_num {
+            let vpn = VirtPageNum(vppn_start.0 + i);
+            for area in self.areas.iter_mut() {
+                if vpn >= area.vpn_range.get_start() && vpn < area.vpn_range.get_end() {
+                    area.unmap_one(&mut page_table, vpn);
+                    break;
+                }
+            }
+        }
+    }
 }
+
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
     vpn_range: VPNRange,
@@ -328,12 +345,12 @@ impl MapArea {
         }
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map(vpn, ppn, pte_flags);
-        println!(
-            "mapped vpn {:x} to ppn {:x}, flags {:b}",
-            vpn.0,
-            ppn.0,
-            pte_flags.bits()
-        );
+        // println!(
+        //     "mapped vpn {:x} to ppn {:x}, flags {:b}",
+        //     vpn.0,
+        //     ppn.0,
+        //     pte_flags.bits()
+        // );
     }
     #[allow(unused)]
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
