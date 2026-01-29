@@ -226,3 +226,23 @@ pub fn current_unmap_pages(vaddr: usize, page_num: usize) {
     let current = inner.current_task;
     inner.tasks[current].memory_set.unmap_area(vaddr, page_num);
 }
+
+/// 增加当前用户程序某系统调用使用计数
+pub fn current_sys_id_add(sys_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    *inner.tasks[current]
+        .syscall_count
+        .entry(sys_id)
+        .or_insert(0) += 1;
+}
+
+/// 获取当前用户程序某系统调用使用计数
+pub fn current_sys_id_count(sys_id: usize) -> isize {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    match inner.tasks[current].syscall_count.get(&sys_id) {
+        Some(count) => *count as isize,
+        None => 0,
+    }
+}

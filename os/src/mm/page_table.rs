@@ -70,6 +70,10 @@ impl PageTableEntry {
     pub fn executable(&self) -> bool {
         (self.flags() & PTEFlags::X) != PTEFlags::empty()
     }
+    /// 页面是否对用户可见
+    pub fn allow_user(&self) -> bool {
+        (self.flags() & PTEFlags::U) != PTEFlags::empty()
+    }
 }
 
 /// page table structure
@@ -178,4 +182,12 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+/// 翻译单个字节
+pub fn translated_byte(token: usize, ptr: *const u8) -> &'static mut u8 {
+    let page_table = PageTable::from_token(token);
+    let vaddr = VirtAddr::from(ptr as usize);
+    let ppn = page_table.translate(vaddr.floor()).unwrap().ppn();
+    &mut ppn.get_bytes_array()[vaddr.page_offset()]
 }

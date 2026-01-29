@@ -1,9 +1,12 @@
 //! Process management syscalls
 use crate::config::PAGE_SIZE;
-use crate::mm::{translated_byte_buffer, MapPermission, VirtAddr, VirtPageNum};
+use crate::mm::{
+    translated_byte, translated_byte_buffer, MapPermission, PageTable, VirtAddr, VirtPageNum,
+};
 use crate::task::{
-    change_program_brk, current_check_page_mapped, current_map_pages, current_unmap_pages,
-    current_user_token, exit_current_and_run_next, suspend_current_and_run_next,
+    change_program_brk, current_check_page_mapped, current_map_pages, current_sys_id_count,
+    current_unmap_pages, current_user_token, exit_current_and_run_next,
+    suspend_current_and_run_next,
 };
 use crate::timer::get_time_us;
 
@@ -71,7 +74,46 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    match _trace_request {
+        0 => {
+            let page_table = PageTable::from_token(current_user_token());
+            let vaddr = VirtAddr::from(_id);
+            if let Some(pte) = page_table.translate(vaddr.floor()) {
+                // 页表项是否有效、用户可见且可读
+                if !pte.is_valid() || !pte.allow_user() || !pte.readable() {
+                    -1
+                } else {
+                    *translated_byte(current_user_token(), _id as *const u8) as isize
+                }
+            } else {
+                -1
+            }
+        }
+        1 => {
+            let page_table = PageTable::from_token(current_user_token());
+            let vaddr = VirtAddr::from(_id);
+            if let Some(pte) = page_table.translate(vaddr.floor()) {
+                // 页表项是否有效、用户可见且可写
+                if !pte.is_valid() || !pte.allow_user() || !pte.writable() {
+                    -1
+                } else {
+                    let ptr = translated_byte(current_user_token(), _id as *const u8);
+                    *ptr = _data as u8;
+                    0
+                }
+            } else {
+                -1
+            }
+        }
+        2 => current_sys_id_count(_id),
+        _ => {
+            trace!(
+                "kernel: sys_trace failed! trace_request {} is invalid!",
+                _trace_request
+            );
+            return -1;
+        }
+    }
 }
 
 // YOUR JOB: Implement mmap.
