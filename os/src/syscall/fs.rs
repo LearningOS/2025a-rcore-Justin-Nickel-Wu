@@ -1,6 +1,6 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat};
-use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
+use crate::fs::{linkat, open_file, unlinkat, OpenFlags, Stat};
+use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
@@ -77,27 +77,56 @@ pub fn sys_close(fd: usize) -> isize {
 
 /// YOUR JOB: Implement fstat.
 pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel:pid[{}] sys_fstat", current_task().unwrap().pid.0);
+    // 获取stat
+    let stat = {
+        let task = current_task().unwrap();
+        let inner = task.inner_exclusive_access();
+        if _fd >= inner.fd_table.len() {
+            return -1;
+        }
+        if inner.fd_table[_fd].is_none() {
+            return -1;
+        }
+        let inode = inner.fd_table[_fd].as_ref().unwrap();
+        inode.stat()
+    };
+    // 在用户页表中写回
+    let token = current_user_token();
+    *translated_refmut(token, _st) = stat;
+    0
 }
 
 /// YOUR JOB: Implement linkat.
 pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
+    trace!("kernel:pid[{}] sys_linkat", current_task().unwrap().pid.0);
+    let old_name = translated_str(current_user_token(), _old_name);
+    let new_name = translated_str(current_user_token(), _new_name);
+    if old_name == new_name {
+        trace!(
+            "kernel:pid[{}] sys_linkat failed! use linkat to link a file to itself",
+            current_task().unwrap().pid.0
+        );
+        return -1;
+    }
     trace!(
-        "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
+        "kernel:pid[{}] try to link {} to {}",
+        current_task().unwrap().pid.0,
+        old_name,
+        new_name
     );
-    -1
+    linkat(old_name.as_str(), new_name.as_str());
+    0
 }
 
 /// YOUR JOB: Implement unlinkat.
 pub fn sys_unlinkat(_name: *const u8) -> isize {
+    trace!("kernel:pid[{}] sys_unlinkat", current_task().unwrap().pid.0);
+    let name = translated_str(current_user_token(), _name);
     trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
+        "kernel:pid[{}] try to unlink {}",
+        current_task().unwrap().pid.0,
+        name
     );
-    -1
+    unlinkat(name.as_str())
 }

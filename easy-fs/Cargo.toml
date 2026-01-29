@@ -9,6 +9,8 @@ edition = "2018"
 [dependencies]
 spin = "0.7.0"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+log = { version = "0.4", default-features = false }
+
 
 [profile.release]
 debug = true

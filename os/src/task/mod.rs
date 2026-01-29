@@ -23,6 +23,7 @@ mod switch;
 mod task;
 
 use crate::fs::{open_file, OpenFlags};
+use crate::mm::{MapPermission, VirtAddr, VirtPageNum};
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
@@ -46,6 +47,7 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    task_inner.stride += task_inner.pass; // 更新pass值
     drop(task_inner);
     // ---- release current PCB
 
@@ -119,4 +121,29 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// 检查当前进程的页表中，vpn是否已经存在映射
+pub fn current_check_page_mapped(vpn: VirtPageNum) -> bool {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    inner.memory_set.check_page_mapped(vpn)
+}
+
+/// 为当前进程的页表映射从start开始的page_num个页，权限为perm
+pub fn current_map_pages(_start: usize, _page_num: usize, perm: MapPermission) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner
+        .memory_set
+        .map_pages(VirtAddr::from(_start), _page_num, perm);
+}
+
+/// 为当前进程的页表解除从start开始的page_num个页的映射
+pub fn current_unmap_pages(_start: usize, _page_num: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner
+        .memory_set
+        .unmap_pages(VirtAddr::from(_start), _page_num);
 }

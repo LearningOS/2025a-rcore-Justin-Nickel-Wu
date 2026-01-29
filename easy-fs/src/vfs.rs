@@ -183,4 +183,100 @@ impl Inode {
         });
         block_cache_sync_all();
     }
+    /// 创建一个文件的一个硬链接
+    pub fn linkat(&self, old_name: &str, new_name: &str) {
+        let mut fs = self.fs.lock();
+        // 获取旧文件的inode id
+        let old_inode_id = self.read_disk_inode(|root_inode: &DiskInode| {
+            self.find_inode_id(old_name, root_inode).unwrap()
+        });
+        // 新建目录项，并连接至旧文件的inode id
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let new_size = (file_count + 1) * DIRENT_SZ;
+            self.increase_size(new_size as u32, root_inode, &mut fs);
+            let dirent = DirEntry::new(new_name, old_inode_id); // new_name linkat old_inode_id
+            root_inode.write_at(
+                file_count * DIRENT_SZ,
+                dirent.as_bytes(),
+                &self.block_device,
+            );
+        });
+        // 更新旧文件的nlink
+        let (inode_block_id, inode_block_offset) = fs.get_disk_inode_pos(old_inode_id);
+        get_block_cache(inode_block_id as usize, Arc::clone(&self.block_device))
+            .lock()
+            .modify(inode_block_offset, |diskinode: &mut DiskInode| {
+                diskinode.nlink += 1;
+            });
+    }
+    /// 取消一个文件的硬连接
+    pub fn unlinkat(&self, name: &str) -> isize {
+        let mut fs = self.fs.lock();
+        // 获得目录项与目录项idx
+        let mut found = false;
+        let mut dirent = DirEntry::empty();
+        let mut idx = 0;
+        self.read_disk_inode(|disk_inode| {
+            // 检查是否是目录
+            assert!(disk_inode.is_dir());
+            let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+            for i in 0..file_count {
+                // 检验读出长度
+                assert_eq!(
+                    disk_inode.read_at(DIRENT_SZ * i, dirent.as_bytes_mut(), &self.block_device,),
+                    DIRENT_SZ,
+                );
+                if dirent.name() == name {
+                    found = true;
+                    idx = i;
+                    break;
+                }
+            }
+        });
+        // 检查是否找到
+        if !found {
+            return -1;
+        }
+        // 得到inode相关信息
+        let inode_id = dirent.inode_id() as u32;
+        let (inode_block_id, inode_block_offset) = fs.get_disk_inode_pos(inode_id);
+        log::debug!(
+            "inode found! inode = {} block_id = {} offset = {}",
+            inode_id,
+            inode_block_id,
+            inode_block_offset
+        );
+        // 抹去当前目录项，暂时不考虑回收
+        self.modify_disk_inode(|disk_inode| {
+            dirent = DirEntry::empty();
+            disk_inode.write_at(idx * DIRENT_SZ, dirent.as_bytes(), &self.block_device);
+        });
+        // 更新被unlink文件的nlink
+        get_block_cache(inode_block_id as usize, Arc::clone(&self.block_device))
+            .lock()
+            .modify(inode_block_offset, |disk_inode: &mut DiskInode| {
+                disk_inode.nlink -= 1;
+                if disk_inode.nlink == 0 {
+                    let size = disk_inode.size;
+                    let data_blocks_dealloc = disk_inode.clear_size(&self.block_device);
+                    assert!(data_blocks_dealloc.len() == DiskInode::total_blocks(size) as usize);
+                    for data_block in data_blocks_dealloc.into_iter() {
+                        fs.dealloc_data(data_block);
+                    }
+                }
+            });
+        0
+    }
+    /// 获取文件状态 返回三元组(is_file, is_dir, nlink)
+    pub fn stat(&self) -> (bool, bool, u32) {
+        self.read_disk_inode(|disk_inode| {
+            (disk_inode.is_file(), disk_inode.is_dir(), disk_inode.nlink)
+        })
+    }
+    /// 获取inode对应的diskinode id
+    pub fn get_inode_id(&self) -> u32 {
+        let fs = self.fs.lock();
+        fs.get_disk_inode_id(self.block_id as u32, self.block_offset as u32)
+    }
 }
