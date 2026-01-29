@@ -176,11 +176,16 @@ pub fn sys_sbrk(size: i32) -> isize {
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    trace!("kernel:pid[{}] sys_spawn", current_task().unwrap().pid.0);
+    let path = translated_str(current_user_token(), _path);
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let new_task = current_task().unwrap().spawn(data);
+        let new_task_pid = new_task.getpid() as isize;
+        add_task(new_task);
+        new_task_pid
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
