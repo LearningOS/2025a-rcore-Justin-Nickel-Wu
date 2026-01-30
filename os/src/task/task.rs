@@ -1,7 +1,7 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{BIG_STRIDE, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -68,6 +68,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// 用于stride调度
+    pub stride: usize,
+
+    /// 用于stride调度，记录步长（优先级）
+    pub pass: usize,
 }
 
 impl TaskControlBlockInner {
@@ -84,6 +90,11 @@ impl TaskControlBlockInner {
     }
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
+    }
+
+    /// 设置进程优先级
+    pub fn set_priority(&mut self, prio: usize) {
+        self.pass = BIG_STRIDE / prio;
     }
 }
 
@@ -118,6 +129,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0,
+                    pass: BIG_STRIDE / 16, // 初始优先级16
                 })
             },
         };
@@ -191,6 +204,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: parent_inner.stride, // fork复制父进程的stride与pass值
+                    pass: parent_inner.pass,
                 })
             },
         });
@@ -234,6 +249,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0, // spawn使用默认初始值
+                    pass: BIG_STRIDE / 16,
                 })
             },
         });
