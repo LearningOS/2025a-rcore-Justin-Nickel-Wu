@@ -22,6 +22,7 @@ mod switch;
 mod task;
 
 use crate::loader::get_app_data_by_name;
+use crate::mm::{MapPermission, VirtAddr, VirtPageNum};
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
@@ -114,4 +115,20 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// 检查当前进程的页表中，vpn是否已经存在映射
+pub fn current_check_page_mapped(vpn: VirtPageNum) -> bool {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    inner.memory_set.check_page_mapped(vpn)
+}
+
+/// 为当前进程的页表映射从start开始的page_num个页，权限为perm
+pub fn current_map_pages(_start: usize, _page_num: usize, perm: MapPermission) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner
+        .memory_set
+        .map_pages(VirtAddr::from(_start), _page_num, perm);
 }

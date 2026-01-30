@@ -300,6 +300,28 @@ impl MemorySet {
             false
         }
     }
+
+    #[allow(unused)]
+    /// 检查页表中vpn是否已经存在映射
+    pub fn check_page_mapped(&self, vpn: VirtPageNum) -> bool {
+        if let Some(pte) = self.page_table.translate(vpn) {
+            pte.is_valid()
+        } else {
+            false
+        }
+    }
+
+    #[allow(unused)]
+    /// 为页表映射从start开始的page_num个页，权限为perm
+    pub fn map_pages(&mut self, _start: VirtAddr, _page_num: usize, perm: MapPermission) {
+        let map_area = MapArea::new(
+            _start,
+            (_start.0 + _page_num * PAGE_SIZE).into(),
+            MapType::Framed,
+            perm,
+        );
+        self.push(map_area, None);
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

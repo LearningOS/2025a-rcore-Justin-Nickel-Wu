@@ -2,11 +2,12 @@
 use alloc::sync::Arc;
 
 use crate::{
+    config::PAGE_SIZE,
     loader::get_app_data_by_name,
-    mm::{translated_byte_buffer, translated_refmut, translated_str},
+    mm::{translated_byte_buffer, translated_refmut, translated_str, MapPermission, VirtAddr},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
+        add_task, current_check_page_mapped, current_map_pages, current_task, current_user_token,
+        exit_current_and_run_next, suspend_current_and_run_next,
     },
     timer::get_time_us,
 };
@@ -146,12 +147,44 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_mmap(_start: usize, _len: usize, _prot: usize) -> isize {
+    trace!("kernel: sys_mmap");
+    // 检查prot合法性
+    if _prot & !0x7 != 0 || _prot & 0x7 == 0 {
+        trace!("kernel: sys_mmap failed due to invalid prot!");
+        return -1;
+    }
+    // 检查地址是否对其
+    if _start & 0xfff != 0 {
+        trace!("kernel: sys_mmap failed due to invalid start addr!");
+        return -1;
+    }
+    // 检查是否虚拟地址是否已经映射
+    let page_num = (_len + PAGE_SIZE - 1) / PAGE_SIZE;
+    for i in 0..page_num {
+        let addr = _start + i * PAGE_SIZE;
+        let vpn = VirtAddr::from(addr).floor();
+        if current_check_page_mapped(vpn) {
+            trace!(
+                "kernel: sys_mmap failed! VPN {:x} is already mapped!",
+                vpn.0
+            );
+            return -1;
+        }
+    }
+    let mut flags = MapPermission::U;
+    if _prot & 0x1 != 0 {
+        flags |= MapPermission::R;
+    }
+    if _prot & 0x2 != 0 {
+        flags |= MapPermission::W;
+    }
+    if _prot & 0x4 != 0 {
+        flags |= MapPermission::X;
+    }
+    // 进行映射
+    current_map_pages(_start, page_num, flags);
+    0
 }
 
 /// YOUR JOB: Implement munmap.
