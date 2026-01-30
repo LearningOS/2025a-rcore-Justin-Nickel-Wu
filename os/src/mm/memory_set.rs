@@ -322,6 +322,22 @@ impl MemorySet {
         );
         self.push(map_area, None);
     }
+
+    #[allow(unused)]
+    /// 为页表解除从start开始的page_num个页的映射
+    pub fn unmap_pages(&mut self, va: VirtAddr, page_num: usize) {
+        let vppn_start = VirtPageNum::from(va);
+        let mut page_table = &mut self.page_table;
+        for i in 0..page_num {
+            let vpn = VirtPageNum(vppn_start.0 + i);
+            for area in self.areas.iter_mut() {
+                if vpn >= area.vpn_range.get_start() && vpn < area.vpn_range.get_end() {
+                    area.unmap_one(&mut page_table, vpn);
+                    break;
+                }
+            }
+        }
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

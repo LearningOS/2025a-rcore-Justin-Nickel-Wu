@@ -132,3 +132,12 @@ pub fn current_map_pages(_start: usize, _page_num: usize, perm: MapPermission) {
         .memory_set
         .map_pages(VirtAddr::from(_start), _page_num, perm);
 }
+
+/// 为当前进程的页表解除从start开始的page_num个页的映射
+pub fn current_unmap_pages(_start: usize, _page_num: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner
+        .memory_set
+        .unmap_pages(VirtAddr::from(_start), _page_num);
+}
